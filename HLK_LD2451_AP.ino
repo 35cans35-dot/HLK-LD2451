@@ -437,10 +437,38 @@ static float toRadians(float deg) {
   return deg * 0.0174532925f;
 }
 
+#if defined(ARDUINO_ESP32_MAJOR) && ARDUINO_ESP32_MAJOR >= 3
+static void ledcAttachCompat() {
+  ledcAttach(BUZZER_PIN, cfg.buzzerToneHz, 8);
+}
+
+static void ledcDetachCompat() {
+  ledcDetach(BUZZER_PIN);
+}
+
+static void ledcWriteToneCompat(uint32_t freq) {
+  ledcWriteTone(BUZZER_PIN, freq);
+}
+#else
+static const uint8_t BUZZER_LEDC_CHANNEL = 0;
+static void ledcAttachCompat() {
+  ledcSetup(BUZZER_LEDC_CHANNEL, cfg.buzzerToneHz, 8);
+  ledcAttachPin(BUZZER_PIN, BUZZER_LEDC_CHANNEL);
+}
+
+static void ledcDetachCompat() {
+  ledcDetachPin(BUZZER_PIN);
+}
+
+static void ledcWriteToneCompat(uint32_t freq) {
+  ledcWriteTone(BUZZER_LEDC_CHANNEL, freq);
+}
+#endif
+
 static void buzzerWrite(bool on) {
   if (!cfg.buzzerEnabled || mute) {
     if (cfg.buzzerPassive) {
-      ledcWriteTone(0, 0);
+      ledcWriteToneCompat(0);
     } else {
       digitalWrite(BUZZER_PIN, cfg.buzzerActiveHigh ? LOW : HIGH);
     }
@@ -448,9 +476,9 @@ static void buzzerWrite(bool on) {
   }
   if (cfg.buzzerPassive) {
     if (on) {
-      ledcWriteTone(0, cfg.buzzerToneHz);
+      ledcWriteToneCompat(cfg.buzzerToneHz);
     } else {
-      ledcWriteTone(0, 0);
+      ledcWriteToneCompat(0);
     }
   } else {
     digitalWrite(BUZZER_PIN, on ? (cfg.buzzerActiveHigh ? HIGH : LOW)
@@ -461,11 +489,10 @@ static void buzzerWrite(bool on) {
 static void applyBuzzerConfig() {
   pinMode(BUZZER_PIN, OUTPUT);
   if (cfg.buzzerPassive) {
-    ledcSetup(0, cfg.buzzerToneHz, 8);
-    ledcAttachPin(BUZZER_PIN, 0);
-    ledcWriteTone(0, 0);
+    ledcAttachCompat();
+    ledcWriteToneCompat(0);
   } else {
-    ledcDetachPin(BUZZER_PIN);
+    ledcDetachCompat();
     digitalWrite(BUZZER_PIN, cfg.buzzerActiveHigh ? LOW : HIGH);
   }
 }
