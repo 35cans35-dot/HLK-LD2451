@@ -437,7 +437,8 @@ static float toRadians(float deg) {
   return deg * 0.0174532925f;
 }
 
-#if defined(ARDUINO_ESP32_MAJOR) && ARDUINO_ESP32_MAJOR >= 3
+#if defined(ESP_ARDUINO_VERSION_MAJOR)
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
 static void ledcAttachCompat() {
   ledcAttach(BUZZER_PIN, cfg.buzzerToneHz, 8);
 }
@@ -462,6 +463,21 @@ static void ledcDetachCompat() {
 
 static void ledcWriteToneCompat(uint32_t freq) {
   ledcWriteTone(BUZZER_LEDC_CHANNEL, freq);
+}
+#endif
+#endif
+#else
+// Если версия ядра не определена, пробуем новый API (ESP32 core 3.x).
+static void ledcAttachCompat() {
+  ledcAttach(BUZZER_PIN, cfg.buzzerToneHz, 8);
+}
+
+static void ledcDetachCompat() {
+  ledcDetach(BUZZER_PIN);
+}
+
+static void ledcWriteToneCompat(uint32_t freq) {
+  ledcWriteTone(BUZZER_PIN, freq);
 }
 #endif
 
