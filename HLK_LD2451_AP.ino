@@ -465,7 +465,6 @@ static void ledcWriteToneCompat(uint32_t freq) {
   ledcWriteTone(BUZZER_LEDC_CHANNEL, freq);
 }
 #endif
-#endif
 #else
 // Если версия ядра не определена, пробуем новый API (ESP32 core 3.x).
 static void ledcAttachCompat() {
