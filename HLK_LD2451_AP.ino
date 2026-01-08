@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
+#include <WebServer.h>
+#include <WebSocketsServer.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
 
@@ -117,8 +117,8 @@ static uint16_t buzzerPatternMs = 0;
 static uint16_t buzzerSilenceMs = 0;
 
 // Web
-AsyncWebServer server(80);
-AsyncWebSocket ws("/ws");
+WebServer server(80);
+WebSocketsServer ws(81);
 
 // -------------------- Веб-страница --------------------
 static const char INDEX_HTML[] PROGMEM = R"HTML(
@@ -276,7 +276,7 @@ const state = { targets: [] };
 let ws;
 
 function connectWS(){
-  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws = new WebSocket(`ws://${location.hostname}:81`);
   ws.onmessage = (ev)=>{
     const data = JSON.parse(ev.data);
     if(data.type === 'telemetry'){
@@ -918,12 +918,12 @@ static void applyConfigFromJson(const String &body) {
 }
 
 // -------------------- WebSocket / API --------------------
-static void notifyConfig(AsyncWebSocketClient *client = nullptr) {
+static void notifyConfig(uint8_t clientId = 0) {
   String json = "{\"type\":\"config\",\"config\":" + configToJson() + "}";
-  if (client) {
-    client->text(json);
+  if (clientId > 0) {
+    ws.sendTXT(clientId, json);
   } else {
-    ws.textAll(json);
+    ws.broadcastTXT(json);
   }
 }
 
@@ -962,52 +962,48 @@ static void notifyTelemetry(float fps) {
 
   String out;
   serializeJson(doc, out);
-  ws.textAll(out);
+  ws.broadcastTXT(out);
 }
 
 static void setupServer() {
-  ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client,
-                AwsEventType type, void *arg, uint8_t *data, size_t len) {
-    if (type == WS_EVT_CONNECT) {
-      notifyConfig(client);
+  ws.onEvent([](uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+    if (type == WStype_CONNECTED) {
+      notifyConfig(num);
     }
   });
-  server.addHandler(&ws);
+  ws.begin();
 
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send_P(200, "text/html; charset=utf-8", INDEX_HTML);
+  server.on("/", HTTP_GET, []() {
+    server.send_P(200, "text/html; charset=utf-8", INDEX_HTML);
   });
 
-  server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "application/json", configToJson());
+  server.on("/api/config", HTTP_GET, []() {
+    server.send(200, "application/json", configToJson());
   });
 
-  server.on("/api/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, nullptr,
-            [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t, size_t) {
-              String body;
-              body.reserve(len);
-              for (size_t i = 0; i < len; ++i) body += (char)data[i];
-              applyConfigFromJson(body);
-              saveConfig();
-              request->send(200, "application/json", configToJson());
-              notifyConfig();
-            });
+  server.on("/api/config", HTTP_POST, []() {
+    String body = server.arg("plain");
+    applyConfigFromJson(body);
+    saveConfig();
+    server.send(200, "application/json", configToJson());
+    notifyConfig();
+  });
 
-  server.on("/api/reset", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on("/api/reset", HTTP_GET, []() {
     frameCount = 0;
     errorCount = 0;
-    request->send(200, "text/plain", "OK");
+    server.send(200, "text/plain", "OK");
   });
 
-  server.on("/api/beep", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on("/api/beep", HTTP_GET, []() {
     setBuzzerPattern(120, 120);
     buzzerNextMs = millis();
-    request->send(200, "text/plain", "OK");
+    server.send(200, "text/plain", "OK");
   });
 
-  server.on("/api/mute", HTTP_GET, [](AsyncWebServerRequest *request) {
+  server.on("/api/mute", HTTP_GET, []() {
     mute = !mute;
-    request->send(200, "text/plain", mute ? "MUTED" : "UNMUTED");
+    server.send(200, "text/plain", mute ? "MUTED" : "UNMUTED");
   });
 
   server.begin();
@@ -1061,12 +1057,13 @@ void loop() {
     notifyTelemetry(fps);
   }
 
-  ws.cleanupClients();
+  ws.loop();
+  server.handleClient();
 }
 
 /*
 ===== Краткая инструкция для новичка =====
-1) Установите библиотеки: ESPAsyncWebServer, AsyncTCP, ArduinoJson.
+1) Установите библиотеки: WebSockets (Links2004), ArduinoJson.
 2) Подключите радар к RX2/TX2 (3.3V TTL), пищалку к BUZZER_PIN.
 3) Залейте скетч, найдите Wi-Fi сеть LD2451_TEST (пароль 12345678).
 4) Откройте браузер: http://192.168.4.1
